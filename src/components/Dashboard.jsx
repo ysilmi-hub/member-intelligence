@@ -1,6 +1,12 @@
-import { useState } from 'react'
-import { FILTER_GROUPS, CLV_VIEW, PLANNER, fmtUSD, fmtUSDfull } from '../data.js'
+import { useState, useEffect } from 'react'
+import { FILTER_GROUPS, PLANNER, fmtUSD, fmtUSDfull } from '../data.js'
+import {
+  combinedAdjustment, applyAdjustment, weightedAvgCLV, clvForClass,
+  decompose, adjustmentReasons, cohortBaseline, driversFromNps, clvFromDrivers,
+} from '../model.js'
+import { BaseAssumptionsView, PopulationView, HorizonControl } from './AssumptionsPopulation.jsx'
 
+// ---- Filter rail -----------------------------------------------------------
 function FilterRail({ filters, setFilters, view }) {
   const toggle = (group, opt) => {
     setFilters((prev) => {
@@ -9,9 +15,10 @@ function FilterRail({ filters, setFilters, view }) {
       return { ...prev, [group]: next }
     })
   }
+  const heading = view === 'intervention' ? 'Cohort baseline' : 'Population filters'
   return (
     <div className="rail">
-      <div className="rail-head">{view === 'intervention' ? 'Cohort baseline' : 'Filters'}</div>
+      <div className="rail-head">{heading}</div>
       {FILTER_GROUPS.map((g) => (
         <div className="rail-group" key={g.id}>
           <div className="rail-label">{g.label}</div>
@@ -19,11 +26,7 @@ function FilterRail({ filters, setFilters, view }) {
             {g.options.map((opt) => {
               const on = (filters[g.id] || []).includes(opt)
               return (
-                <button
-                  key={opt}
-                  className={'pill' + (on ? ' pill-on' : '')}
-                  onClick={() => toggle(g.id, opt)}
-                >
+                <button key={opt} className={'pill' + (on ? ' pill-on' : '')} onClick={() => toggle(g.id, opt)}>
                   {opt}
                 </button>
               )
@@ -35,6 +38,48 @@ function FilterRail({ filters, setFilters, view }) {
   )
 }
 
+// ---- Driver waterfall ------------------------------------------------------
+function Waterfall({ from, to, years }) {
+  const d = decompose(from, to, years)
+  const steps = [{ label: from.name, type: 'anchor', value: d.start }]
+  let run = d.start
+  d.slugs.forEach((s) => {
+    steps.push({ label: s.label, type: 'delta', value: s.value, from: run, to: run + s.value })
+    run += s.value
+  })
+  steps.push({ label: to.name, type: 'anchor', value: d.end })
+
+  const top = Math.max(d.start, d.end, ...steps.map((s) => s.type === 'delta' ? Math.max(s.from, s.to) : s.value))
+  const plotH = 220
+  const y = (v) => plotH - (v / top) * plotH
+
+  return (
+    <div className="wf">
+      <div className="wf-plot" style={{ height: plotH + 'px' }}>
+        {steps.map((s, i) => {
+          let barTop, barH, cls
+          if (s.type === 'anchor') {
+            barTop = y(s.value); barH = plotH - barTop; cls = 'wf-anchor'
+          } else {
+            const hi = Math.max(s.from, s.to), lo = Math.min(s.from, s.to)
+            barTop = y(hi); barH = y(lo) - y(hi); cls = s.value >= 0 ? 'wf-pos' : 'wf-neg'
+          }
+          return (
+            <div className="wf-col" key={i}>
+              <div className="wf-cap num">
+                {s.type === 'delta' ? (s.value >= 0 ? '+' : '−') : ''}{fmtUSD(Math.abs(s.value))}
+              </div>
+              <div className={'wf-bar ' + cls} style={{ top: barTop + 'px', height: Math.max(2, barH) + 'px' }}></div>
+              <div className="wf-axis">{s.label}</div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ---- Member value view -----------------------------------------------------
 function Kpi({ k }) {
   return (
     <div className="kpi">
@@ -45,41 +90,100 @@ function Kpi({ k }) {
   )
 }
 
-function ClvView({ highlightClass, chartStyle }) {
-  const D = CLV_VIEW
-  const max = Math.max(...D.classes.map((c) => c.value))
+function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
+  const { mult, active } = combinedAdjustment(filters)
+  const display = active ? applyAdjustment(classes, mult) : classes
+  const baseAvg = weightedAvgCLV(classes, years)
+  const popAvg = weightedAvgCLV(display, years)
+  const reasons = active ? adjustmentReasons(mult) : []
+
+  const clvFor = (c) => clvForClass(c, years)
+  const values = display.map(clvFor)
+  const max = Math.max(...values)
+
+  const byKey = Object.fromEntries(display.map((c) => [c.key, c]))
+  const initialTo = highlightClass && display.find((c) => c.name === highlightClass)
+    ? display.find((c) => c.name === highlightClass).key : 'SP'
+  const [toKey, setToKey] = useState(initialTo)
+
+  useEffect(() => {
+    if (highlightClass) {
+      const found = display.find((c) => c.name === highlightClass)
+      if (found) setToKey(found.key)
+    }
+  }, [highlightClass]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toCls = byKey[toKey] || byKey.SP
+  const fromCls = toKey === 'PA' ? byKey.DE : byKey.PA
+
+  const kpis = [
+    {
+      id: 'clv', label: active ? 'Population avg CLV' : 'Avg member CLV',
+      value: fmtUSDfull(Math.round(popAvg)),
+      delta: active ? (popAvg >= baseAvg ? '↑ ' : '↓ ') + fmtUSD(Math.abs(popAvg - baseAvg)) + ' vs base' : 'at ' + years + '-yr horizon',
+      up: popAvg >= baseAvg,
+    },
+    { id: 'horizon', label: 'NPV horizon', value: years + ' yrs', delta: 'set on Base assumptions', up: false },
+    { id: 'nps', label: 'NPS score', value: '50', delta: '↑ 1 pt vs prior year', up: true },
+    {
+      id: 'spread', label: 'Top-to-bottom CLV spread',
+      value: (max / Math.max(1, Math.min(...values))).toFixed(1) + '×',
+      delta: 'Super promoter vs Detractor', up: false,
+    },
+  ]
+
   return (
     <div className="view">
       <div className="view-head">
-        <h1 className="view-title">{D.title}</h1>
-        <p className="view-sub">{D.subtitle}</p>
+        <h1 className="view-title">Member value</h1>
+        <p className="view-sub">CLV / NPV of each member class — {active ? 'for the selected population' : 'across the base population'}, at a {years}-yr horizon.</p>
       </div>
 
-      <div className="kpi-row">
-        {D.kpis.map((k) => <Kpi key={k.id} k={k} />)}
-      </div>
+      {active && (
+        <div className="vsbase">
+          <div className="vsbase-main">
+            <span className="vsbase-label">This population vs base</span>
+            <span className={'vsbase-val num ' + (popAvg >= baseAvg ? 'up' : 'down')}>
+              {popAvg >= baseAvg ? '+' : '−'}{fmtUSD(Math.abs(popAvg - baseAvg))}
+              <span className="vsbase-pct">({popAvg >= baseAvg ? '+' : '−'}{Math.abs(Math.round((popAvg - baseAvg) / baseAvg * 100))}%)</span>
+            </span>
+          </div>
+          <div className="vsbase-why">
+            <span className="vsbase-why-label">Why:</span>
+            {reasons.slice(0, 3).map((r, i) => (
+              <span key={i} className={'why-tag' + (r.helps ? ' why-up' : ' why-down')}>{r.text}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="kpi-row">{kpis.map((k) => <Kpi key={k.id} k={k} />)}</div>
 
       <div className="clv-stack">
         <section className="card">
-          <h2 className="card-title">CLV by member class</h2>
+          <div className="card-head-row">
+            <h2 className="card-title">CLV by member class</h2>
+            <span className="card-hint">Click a class to decompose why →</span>
+          </div>
           <div className="bars">
-            {D.classes.map((c) => {
-              const hot = c.name === highlightClass
+            {display.map((c, idx) => {
+              const v = values[idx]
+              const sel = c.key === toKey
               return (
-                <div className={'bar-row' + (hot ? ' bar-hot' : '')} key={c.name}>
-                  <div className="bar-name">{c.name}{hot && <span className="bar-tag">focus</span>}</div>
+                <div className={'bar-row bar-click' + (sel ? ' bar-hot' : '')} key={c.key} onClick={() => setToKey(c.key)}>
+                  <div className="bar-name">{c.name}</div>
                   <div className="bar-track">
                     {chartStyle === 'dots' ? (
                       <div className="dots">
                         {Array.from({ length: 10 }).map((_, i) => (
-                          <span key={i} className={'dot' + (i < Math.round((c.value / max) * 10) ? ' dot-on' : '')}></span>
+                          <span key={i} className={'dot' + (i < Math.round(v / max * 10) ? ' dot-on' : '')}></span>
                         ))}
                       </div>
                     ) : (
-                      <div className="bar-fill" style={{ width: (c.value / max) * 100 + '%' }}></div>
+                      <div className="bar-fill" style={{ width: Math.max(2, v / max * 100) + '%' }}></div>
                     )}
                   </div>
-                  <div className="bar-val num">{fmtUSDfull(c.value)}</div>
+                  <div className="bar-val num">{fmtUSDfull(Math.round(v))}</div>
                 </div>
               )
             })}
@@ -87,23 +191,20 @@ function ClvView({ highlightClass, chartStyle }) {
         </section>
 
         <section className="card">
-          <h2 className="card-title">Additional metrics</h2>
-          <div className="addl">
-            {D.additional.map((a) => (
-              <div className={'addl-tile' + (a.wide ? ' addl-wide' : '')} key={a.label}>
-                <div className="addl-label">{a.label}</div>
-                <div className="addl-value num">{a.value}</div>
-              </div>
-            ))}
-          </div>
+          <h2 className="card-title">
+            Why {toCls.name.toLowerCase()}s are worth {clvFor(toCls) >= clvFor(fromCls) ? 'more' : 'less'} than {fromCls.name.toLowerCase()}s
+          </h2>
+          <p className="card-sub">Decomposing the {fmtUSD(Math.abs(clvFor(toCls) - clvFor(fromCls)))} gap into the four value drivers</p>
+          <Waterfall from={fromCls} to={toCls} years={years} />
         </section>
       </div>
     </div>
   )
 }
 
-function BreakEven({ net }) {
-  const scale = PLANNER.cost * 2
+// ---- Intervention planner --------------------------------------------------
+function BreakEven({ net, cost }) {
+  const scale = cost * 3
   const pos = Math.max(-1, Math.min(1, net / scale))
   const left = 50 + pos * 48
   const positive = net > 0
@@ -112,88 +213,87 @@ function BreakEven({ net }) {
     <div className="be">
       <div className="be-track">
         <div className="be-mid"></div>
-        <div
-          className={'be-marker' + (zero ? '' : positive ? ' be-pos' : ' be-neg')}
-          style={{ left: left + '%' }}
-        ></div>
+        <div className={'be-marker' + (zero ? '' : positive ? ' be-pos' : ' be-neg')} style={{ left: left + '%' }}></div>
       </div>
-      <div className="be-legend">
-        <span>–</span><span className="be-center">break even</span><span>+</span>
-      </div>
+      <div className="be-legend"><span>–</span><span className="be-center">break even</span><span>+</span></div>
     </div>
   )
 }
 
-function Slider({ label, value, min, max, step, display, onChange, loLabel, hiLabel }) {
+function DriverSlider({ label, value, base, min, max, step, display, tweaked, onChange, onReset, loLabel, hiLabel }) {
+  const pct = (v) => (v - min) / (max - min) * 100
   return (
-    <div className="sld">
+    <div className={'sld' + (tweaked ? ' sld-tweaked' : '')}>
       <div className="sld-top">
-        <span className="sld-label">{label}</span>
-        <span className="sld-val num">{display}</span>
+        <span className="sld-label">
+          {label}
+          {tweaked && <span className="sld-badge">tweaked</span>}
+        </span>
+        <span className="sld-actions">
+          <span className="sld-val num">{display}</span>
+          {tweaked && <button className="sld-reset" onClick={onReset} title="Return to model base">↺ base</button>}
+        </span>
       </div>
-      <input
-        type="range" className="range"
-        min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-      />
+      <div className="sld-track-wrap">
+        <input
+          type="range" className="range"
+          min={min} max={max} step={step} value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+        />
+        <div className="sld-basemark" style={{ left: pct(base) + '%' }} title={'Model base: ' + display}></div>
+      </div>
       <div className="sld-ends"><span>{loLabel}</span><span>{hiLabel}</span></div>
     </div>
   )
 }
 
-function ValueReadout({ value, net, hint }) {
-  if (value == null) {
-    return (
-      <div className="readout">
-        <div className="readout-label">Estimated annual value</div>
-        <div className="readout-dash">—</div>
-        <div className="readout-hint">{hint}</div>
-      </div>
-    )
+function InterventionView({ planner, setPlanner, years, setYears, classes }) {
+  const cohort = PLANNER.cohort, cost = PLANNER.cost
+  const baseline = cohortBaseline(classes)
+  const model = driversFromNps(baseline, planner.nps)
+
+  const eff = {
+    churn:    planner.tweaked.churn    ? planner.drivers.churn    : model.churn,
+    womNet:   planner.tweaked.womNet   ? planner.drivers.womNet   : model.womNet,
+    holdings: planner.tweaked.holdings ? planner.drivers.holdings : model.holdings,
   }
-  const positive = net >= 0
-  return (
-    <div className={'readout' + (positive ? ' readout-pos' : ' readout-neg')}>
-      <div className="readout-label">Estimated annual value</div>
-      <div className="readout-value num">{fmtUSD(value)}</div>
-      <div className="readout-net">
-        {positive ? 'Net ' : 'Short '}<strong>{fmtUSD(Math.abs(net))}</strong>
-        {positive ? ' above the $5M cost' : ' below break-even'}
-      </div>
-    </div>
-  )
-}
 
-function InterventionView({ planner, setPlanner }) {
-  const P = PLANNER
-  const npsValue = planner.nps * P.nps.valuePerPoint * P.cohort
-  const npsNet = npsValue - P.cost
+  const value = (clvFromDrivers(eff, years) - clvFromDrivers(baseline, years)) * cohort
+  const net = value - cost
+  const touched = planner.nps > 0 || planner.tweaked.churn || planner.tweaked.womNet || planner.tweaked.holdings
 
-  const directValue =
-    (planner.tenure * P.tenure.valuePerYear +
-      planner.referral * P.referral.valuePerReferral +
-      planner.holdings * P.holdings.valuePerProduct) * P.cohort
-  const directNet = directValue - P.cost
-
-  const npsTouched = planner.nps > 0
-  const directTouched = planner.tenure > 0 || planner.referral > 0 || planner.holdings > 0
+  const setDriver = (key, v) =>
+    setPlanner({ ...planner, drivers: { ...planner.drivers, [key]: v }, tweaked: { ...planner.tweaked, [key]: true } })
+  const resetDriver = (key) =>
+    setPlanner({ ...planner, tweaked: { ...planner.tweaked, [key]: false } })
+  const anyTweak = planner.tweaked.churn || planner.tweaked.womNet || planner.tweaked.holdings
 
   return (
     <div className="view">
-      <div className="view-head">
-        <h1 className="view-title">Intervention planner</h1>
-        <p className="view-sub">Calculate whether a policy, product, or program change is worth the cost</p>
+      <div className="view-head view-head-row">
+        <div>
+          <h1 className="view-title">Intervention planner</h1>
+          <p className="view-sub">Move NPS and the model flows it through to the drivers — or tweak any driver directly to find the break-even.</p>
+        </div>
+        <div className="head-controls">
+          {anyTweak && (
+            <button className="reset-btn" onClick={() => setPlanner({ ...planner, tweaked: { churn: false, womNet: false, holdings: false } })}>
+              ↺ Return all to base
+            </button>
+          )}
+          <HorizonControl years={years} setYears={setYears} />
+        </div>
       </div>
 
       <div className="kpi-row kpi-row-2">
         <div className="kpi">
           <div className="kpi-label">Cohort affected</div>
-          <div className="kpi-value num">{P.cohort.toLocaleString()}</div>
+          <div className="kpi-value num">{cohort.toLocaleString()}</div>
           <div className="kpi-delta">members / year</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Direct cost of intervention</div>
-          <div className="kpi-value num">{fmtUSD(P.cost)}</div>
+          <div className="kpi-value num">{fmtUSD(cost)}</div>
           <div className="kpi-delta">annual</div>
         </div>
       </div>
@@ -201,85 +301,161 @@ function InterventionView({ planner, setPlanner }) {
       <div className="card-row">
         <section className="card">
           <h2 className="card-title">NPS sensitivity</h2>
-          <p className="card-sub">How much does NPS need to move?</p>
-          <Slider
-            label="NPS uplift (points)" value={planner.nps}
-            min={P.nps.min} max={P.nps.max} step={P.nps.step}
-            display={'+' + planner.nps + ' pt'} loLabel="no change" hiLabel="+20 pts"
-            onChange={(v) => setPlanner({ ...planner, nps: v })}
+          <p className="card-sub">The primary lever — flows through to the drivers on the right</p>
+          <DriverSlider
+            label="NPS uplift" value={planner.nps} base={0}
+            min={0} max={20} step={1} display={'+' + planner.nps + ' pts'}
+            tweaked={false} onChange={(v) => setPlanner({ ...planner, nps: v })}
+            loLabel="no change" hiLabel="+20 pts"
           />
-          <BreakEven net={npsTouched ? npsNet : 0} />
-          <ValueReadout
-            value={npsTouched ? npsValue : null} net={npsNet}
-            hint="Move the slider to see the break-even"
-          />
+          <div className="flowbox">
+            <div className="flowbox-label">Modeled flow-through</div>
+            <div className="flowrow"><span>Churn rate</span><span className="num">{baseline.churn.toFixed(1)}% → {model.churn.toFixed(1)}%</span></div>
+            <div className="flowrow"><span>Word of mouth</span><span className="num">{baseline.womNet.toFixed(1)} → {model.womNet.toFixed(1)}/yr</span></div>
+            <div className="flowrow"><span>Holdings</span><span className="num">{baseline.holdings.toFixed(2)} → {model.holdings.toFixed(2)}</span></div>
+          </div>
         </section>
 
         <section className="card">
-          <h2 className="card-title">Direct metric uplift</h2>
-          <p className="card-sub">Adjust the three core metrics</p>
-          <Slider
-            label="Retention / tenure uplift" value={planner.tenure}
-            min={P.tenure.min} max={P.tenure.max} step={P.tenure.step}
-            display={'+' + planner.tenure.toFixed(1) + ' yrs'} loLabel="no change" hiLabel="+4 yrs"
-            onChange={(v) => setPlanner({ ...planner, tenure: v })}
+          <h2 className="card-title">Drivers</h2>
+          <p className="card-sub">Set by NPS — or drag to tweak off base. The tick marks the model value.</p>
+          <DriverSlider
+            label="Churn rate" value={eff.churn} base={model.churn}
+            min={0} max={20} step={0.1} display={eff.churn.toFixed(1) + '%'}
+            tweaked={planner.tweaked.churn} onChange={(v) => setDriver('churn', v)} onReset={() => resetDriver('churn')}
+            loLabel="0%" hiLabel="20%"
           />
-          <Slider
-            label="Referral rate uplift" value={planner.referral}
-            min={P.referral.min} max={P.referral.max} step={P.referral.step}
-            display={'+' + planner.referral + ' people'} loLabel="no change" hiLabel="+10 / lifetime"
-            onChange={(v) => setPlanner({ ...planner, referral: v })}
+          <DriverSlider
+            label="Word of mouth" value={eff.womNet} base={model.womNet}
+            min={-2} max={12} step={0.1} display={eff.womNet.toFixed(1) + '/yr'}
+            tweaked={planner.tweaked.womNet} onChange={(v) => setDriver('womNet', v)} onReset={() => resetDriver('womNet')}
+            loLabel="−2" hiLabel="+12"
           />
-          <Slider
-            label="Product holdings uplift" value={planner.holdings}
-            min={P.holdings.min} max={P.holdings.max} step={P.holdings.step}
-            display={'+' + planner.holdings.toFixed(1)} loLabel="no change" hiLabel="+1.0 products"
-            onChange={(v) => setPlanner({ ...planner, holdings: v })}
-          />
-          <BreakEven net={directTouched ? directNet : 0} />
-          <ValueReadout
-            value={directTouched ? directValue : null} net={directNet}
-            hint="Move the sliders to see the break-even"
+          <DriverSlider
+            label="Product holdings" value={eff.holdings} base={model.holdings}
+            min={1} max={5} step={0.05} display={eff.holdings.toFixed(2)}
+            tweaked={planner.tweaked.holdings} onChange={(v) => setDriver('holdings', v)} onReset={() => resetDriver('holdings')}
+            loLabel="1.0" hiLabel="5.0"
           />
         </section>
       </div>
+
+      <section className="card card-result">
+        <div className="result-grid">
+          <div className="result-block">
+            <div className="readout-label">Estimated annual value created</div>
+            <div className={'readout-value num ' + (net >= 0 ? 'pos' : 'neg')}>{touched ? fmtUSD(value) : '—'}</div>
+            {touched && (
+              <div className={'readout-net ' + (net >= 0 ? 'pos' : 'neg')}>
+                {net >= 0 ? 'Net ' : 'Short '}<strong>{fmtUSD(Math.abs(net))}</strong>
+                {net >= 0 ? ' above the ' + fmtUSD(cost) + ' cost' : ' below break-even'}
+              </div>
+            )}
+            {!touched && <div className="readout-hint">Move NPS, or tweak a driver, to model the value.</div>}
+          </div>
+          <div className="result-block">
+            <div className="readout-label">Break-even</div>
+            <BreakEven net={touched ? net : 0} cost={cost} />
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
 
-export default function Dashboard({ view, setView, filters, setFilters, planner, setPlanner, highlightClass, note, chartStyle }) {
-  const activeFilters = Object.values(filters).flat()
+// ---- Dashboard shell -------------------------------------------------------
+const STEP1_TABS = [
+  { id: 'assumptions', label: 'Base assumptions' },
+  { id: 'population',  label: 'Population adjustments' },
+]
+const STEP2_TABS = [
+  { id: 'clv',          label: 'Member value' },
+  { id: 'intervention', label: 'Intervention planner' },
+]
+
+export default function Dashboard(props) {
+  const {
+    view, setView, filters, setFilters, planner, setPlanner,
+    highlightClass, note, chartStyle, classes, setClasses, years, setYears,
+    dirty, resetAssumptions, onPickPopulation,
+    statusLabel, lastSaved, onSaveContinue, onModelSummary,
+  } = props
+
+  const step = (view === 'assumptions' || view === 'population') ? 1 : 2
+  const tabs = step === 1 ? STEP1_TABS : STEP2_TABS
+  const showRail = view === 'clv' || view === 'intervention'
+
   return (
     <main className="dash">
-      <div className="dash-topbar">
-        <div className="tabs">
-          <button className={'tab' + (view === 'clv' ? ' tab-on' : '')} onClick={() => setView('clv')}>
-            Member value
+      <div className="stepbar">
+        <div className="steps">
+          <button className={'step' + (step === 1 ? ' step-on' : '')} onClick={() => setView('assumptions')}>
+            <span className="step-num">1</span>
+            <span className="step-text"><b>Configure model</b><small>Set your assumptions</small></span>
           </button>
-          <button className={'tab' + (view === 'intervention' ? ' tab-on' : '')} onClick={() => setView('intervention')}>
-            Intervention planner
+          <span className="step-div"></span>
+          <button className={'step' + (step === 2 ? ' step-on' : '')} onClick={() => setView('clv')}>
+            <span className="step-num">2</span>
+            <span className="step-text"><b>Analyze results</b><small>Explore impact &amp; opportunities</small></span>
           </button>
         </div>
-        <div className="topbar-right">
-          <span className="cohort-chip" title="Active cohort">
-            {activeFilters.slice(0, 3).join(' · ') || 'All members'}
-            {activeFilters.length > 3 ? ' +' + (activeFilters.length - 3) : ''}
+        <div className="stepbar-right">
+          <span className="status-pill">
+            <span className={'status-dot' + (statusLabel === 'Saved' ? ' status-saved' : '')}></span>
+            Model status <b>{statusLabel}</b>
           </span>
+          <button className="summary-btn" onClick={onModelSummary}>⚖ Model summary</button>
         </div>
       </div>
 
+      <div className="subtabs">
+        {tabs.map((tb) => (
+          <button key={tb.id} className={'subtab' + (view === tb.id ? ' subtab-on' : '')} onClick={() => setView(tb.id)}>
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
       {note && (
-        <div className={'note note-' + note.tone}>
-          <span className="note-dot"></span>{note.text}
-        </div>
+        <div className={'note note-' + note.tone}><span className="note-dot"></span>{note.text}</div>
       )}
 
       <div className="dash-body">
-        <FilterRail filters={filters} setFilters={setFilters} view={view} />
+        {showRail && <FilterRail filters={filters} setFilters={setFilters} view={view} />}
         <div className="dash-content">
-          {view === 'clv'
-            ? <ClvView highlightClass={highlightClass} chartStyle={chartStyle} />
-            : <InterventionView planner={planner} setPlanner={setPlanner} />}
+          {view === 'assumptions' && (
+            <BaseAssumptionsView
+              classes={classes} setClasses={setClasses}
+              years={years} setYears={setYears}
+              dirty={dirty} resetAssumptions={resetAssumptions}
+            />
+          )}
+          {view === 'population' && (
+            <PopulationView classes={classes} years={years} onPickPopulation={onPickPopulation} />
+          )}
+          {view === 'clv' && (
+            <ClvView classes={classes} years={years} filters={filters} chartStyle={chartStyle} highlightClass={highlightClass} />
+          )}
+          {view === 'intervention' && (
+            <InterventionView planner={planner} setPlanner={setPlanner} years={years} setYears={setYears} classes={classes} />
+          )}
+        </div>
+      </div>
+
+      <div className="actionbar">
+        <div className="actionbar-left">
+          <span className="saved-clock" aria-hidden="true">↻</span>
+          <span className="saved-text">Last saved: {lastSaved}</span>
+        </div>
+        <div className="actionbar-right">
+          {step === 1 ? (
+            <>
+              <button className="btn-ghost" onClick={resetAssumptions}>Reset to defaults</button>
+              <button className="btn-primary" onClick={onSaveContinue}>Save &amp; continue to results <span aria-hidden="true">→</span></button>
+            </>
+          ) : (
+            <button className="btn-ghost" onClick={() => setView('assumptions')}><span aria-hidden="true">←</span> Back to configure model</button>
+          )}
         </div>
       </div>
     </main>

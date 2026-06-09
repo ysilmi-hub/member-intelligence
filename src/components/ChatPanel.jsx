@@ -14,7 +14,7 @@ function RichText({ text }) {
   )
 }
 
-function AssistantMessage({ msg, onAsk }) {
+function AssistantMessage({ msg }) {
   return (
     <div className="msg msg-ai">
       <div className="ai-avatar" aria-hidden="true">
@@ -39,7 +39,8 @@ function AssistantMessage({ msg, onAsk }) {
         {msg.chips && msg.chips.length > 0 && (
           <div className="ai-chips">
             {msg.chips.map((c, i) => (
-              <button key={i} className="chip chip-followup" onClick={() => onAsk(c)}>
+              <button key={i} className="chip chip-followup"
+                onClick={() => window.__miAsk && window.__miAsk(c)}>
                 {c}
               </button>
             ))}
@@ -83,7 +84,7 @@ export default function ChatPanel({ messages, busy, onAsk, draft, setDraft }) {
     setDraft('')
   }
 
-  const showSuggested = messages.length <= 1
+  const showSuggested = messages.length === 0
 
   return (
     <aside className="chat">
@@ -99,22 +100,36 @@ export default function ChatPanel({ messages, busy, onAsk, draft, setDraft }) {
       </header>
 
       <div className="chat-scroll" ref={scroller}>
-        <div className="chat-messages">
-          {messages.map((m, i) =>
-            m.role === 'user'
-              ? <UserMessage key={i} text={m.text} />
-              : <AssistantMessage key={i} msg={m} onAsk={onAsk} />
-          )}
-          {busy && <Typing />}
+        <div className="assistant-intro">
+          <div className="intro-row">
+            <div className="ai-avatar-lg" aria-hidden="true"><span className="ai-avatar-mark">✦</span></div>
+            <div className="intro-name">I'm Member Compass <span className="beta">BETA</span></div>
+          </div>
+          <p className="intro-greet">I'm your member intelligence assistant. Ask about any segment, member value, churn risk, or model an intervention — I'll update the dashboard on the right as we go.</p>
         </div>
 
-        {showSuggested && (
+        {messages.length > 0 && (
+          <div className="chat-messages">
+            {messages.map((m, i) =>
+              m.role === 'user'
+                ? <UserMessage key={i} text={m.text} />
+                : <AssistantMessage key={i} msg={m} />
+            )}
+            {busy && <Typing />}
+          </div>
+        )}
+        {messages.length === 0 && busy && (
+          <div className="chat-messages"><Typing /></div>
+        )}
+
+        {showSuggested && !busy && (
           <div className="suggested">
             <div className="suggested-label">Try asking</div>
             <div className="suggested-list">
               {SUGGESTED.map((s, i) => (
                 <button key={i} className="chip chip-suggest" onClick={() => onAsk(s)} disabled={busy}>
-                  {s}
+                  <span className="chip-text">{s}</span>
+                  <span className="chip-chev" aria-hidden="true">›</span>
                 </button>
               ))}
             </div>
@@ -122,18 +137,21 @@ export default function ChatPanel({ messages, busy, onAsk, draft, setDraft }) {
         )}
       </div>
 
-      <form className="composer" onSubmit={submit}>
-        <input
-          className="composer-input"
-          placeholder="Ask me anything"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          disabled={busy}
-        />
-        <button type="submit" className="composer-send" disabled={busy || !draft.trim()}>
-          Ask <span className="send-arrow" aria-hidden="true">↗</span>
-        </button>
-      </form>
+      <div className="chat-foot">
+        <form className="composer" onSubmit={submit}>
+          <input
+            className="composer-input"
+            placeholder="Ask me anything…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={busy}
+          />
+          <button type="submit" className="composer-send" disabled={busy || !draft.trim()} aria-label="Send">
+            <span className="send-arrow" aria-hidden="true">›</span>
+          </button>
+        </form>
+        <p className="disclaimer">Member Compass can make mistakes. Always validate important decisions.</p>
+      </div>
     </aside>
   )
 }

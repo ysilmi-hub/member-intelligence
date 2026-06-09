@@ -1,22 +1,22 @@
 export const fmtUSD = (n) => {
-  if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(n % 1e9 === 0 ? 0 : 1) + 'B';
-  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
-  if (Math.abs(n) >= 1e3) return '$' + Math.round(n / 1e3) + 'K';
-  return '$' + Math.round(n).toLocaleString();
-};
+  if (Math.abs(n) >= 1e9) return '$' + (n / 1e9).toFixed(n % 1e9 === 0 ? 0 : 1) + 'B'
+  if (Math.abs(n) >= 1e6) return '$' + (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M'
+  if (Math.abs(n) >= 1e3) return '$' + Math.round(n / 1e3) + 'K'
+  return '$' + Math.round(n).toLocaleString()
+}
 
-export const fmtUSDfull = (n) => '$' + Math.round(n).toLocaleString();
+export const fmtUSDfull = (n) => '$' + Math.round(n).toLocaleString()
 
 export const FILTER_GROUPS = [
   { id: 'military', label: 'Military status', options: ['Active', 'Veteran', 'Civilian'] },
-  { id: 'base', label: 'On base', options: ['On-base', 'Off-base'] },
-  { id: 'age', label: 'Age', options: ['18–25', '25–45', '45–65', '65+'] },
-  { id: 'gender', label: 'Gender', options: ['M', 'F', 'Other'] },
-  { id: 'income', label: 'Income', options: ['<$50K', '$50–100K', '$100K+'] },
-  { id: 'location', label: 'Location', options: ['Urban', 'Rural', 'North', 'South', 'East', 'West'] },
-  { id: 'family', label: 'Family status', options: ['No kids', '1–2 kids', '3+ kids'] },
-  { id: 'products', label: 'Products', options: ['Checking', 'Savings', 'Mortgage', 'Auto loan', 'CC'] },
-];
+  { id: 'base',     label: 'On base',         options: ['On-base', 'Off-base'] },
+  { id: 'age',      label: 'Age',             options: ['18–25', '25–45', '45–65', '65+'] },
+  { id: 'gender',   label: 'Gender',          options: ['M', 'F', 'Other'] },
+  { id: 'income',   label: 'Income',          options: ['<$50K', '$50–100K', '$100K+'] },
+  { id: 'location', label: 'Location',        options: ['Urban', 'Rural', 'North', 'South', 'East', 'West'] },
+  { id: 'family',   label: 'Family status',   options: ['No kids', '1–2 kids', '3+ kids'] },
+  { id: 'products', label: 'Products',        options: ['Checking', 'Savings', 'Mortgage', 'Auto loan', 'CC'] },
+]
 
 export const DEFAULT_FILTERS = {
   military: ['Active'],
@@ -27,38 +27,12 @@ export const DEFAULT_FILTERS = {
   location: ['Urban'],
   family: [],
   products: ['Checking'],
-};
-
-export const CLV_VIEW = {
-  title: 'Member CLV',
-  subtitle: 'Understand CLV / NPV of different member classes by NPS status',
-  kpis: [
-    { id: 'clv', label: 'Avg member CLV', value: '$2,000', delta: '↑ 3.2% vs prior year', up: true },
-    { id: 'tenure', label: 'Avg tenure', value: '7 yrs', delta: '↑ 0.4 yrs vs prior year', up: true },
-    { id: 'nps', label: 'NPS score', value: '50', delta: '↑ 1 pt vs prior year', up: true },
-    { id: 'referral', label: 'Referral rate', value: '10', delta: 'per member lifetime ↑ 5.1%', up: true },
-  ],
-  classes: [
-    { name: 'Super promoter', value: 10000, share: 0.16 },
-    { name: 'Promoter', value: 5000, share: 0.34 },
-    { name: 'Passive', value: 2000, share: 0.32 },
-    { name: 'Detractor', value: 1200, share: 0.18 },
-  ],
-  additional: [
-    { label: 'Customer acquisition cost', value: '$100' },
-    { label: 'Revenue per year', value: '$100' },
-    { label: 'Product holdings (avg)', value: '2.3 products / member', wide: true },
-  ],
-};
+}
 
 export const PLANNER = {
   cohort: 10000,
   cost: 5_000_000,
-  nps: { min: 0, max: 20, step: 1, valuePerPoint: 40 },
-  tenure: { min: 0, max: 4, step: 0.1, valuePerYear: 250 },
-  referral: { min: 0, max: 10, step: 1, valuePerReferral: 95 },
-  holdings: { min: 0, max: 1, step: 0.1, valuePerProduct: 900 },
-};
+}
 
 export const SUGGESTED = [
   'Show me members at risk of churn',
@@ -67,7 +41,7 @@ export const SUGGESTED = [
   'Find members with low engagement but high CLV',
   'What intervention would increase checking adoption?',
   'Create a test plan for first-year members',
-];
+]
 
 export const SCRIPTS = [
   {
@@ -172,7 +146,7 @@ export const SCRIPTS = [
       action: {
         view: 'intervention',
         filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: ['Urban'], products: ['Savings'], base: [], gender: [], family: [] },
-        planner: { nps: 0, tenure: 0, referral: 0, holdings: 0.4 },
+        planner: { nps: 4 },
         note: { tone: 'info', text: 'Modeling: checking auto-enroll for savings-only members' },
       },
       message: {
@@ -184,7 +158,7 @@ export const SCRIPTS = [
         ],
         recommendation: {
           title: 'How to read the planner',
-          body: 'Drag the Product holdings slider in the Direct metric uplift panel. Anything right of "break even" means the adoption lift more than pays for the $5M program.',
+          body: 'Drag the Product holdings slider in Panel B. Anything right of "break even" means the adoption lift more than pays for the $5M program.',
         },
         chips: ['Create a test plan for first-year members', 'Which members have the highest growth potential?'],
       },
@@ -196,7 +170,7 @@ export const SCRIPTS = [
       action: {
         view: 'intervention',
         filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: [], base: [], gender: [], family: [], products: ['Checking'] },
-        planner: { nps: 6, tenure: 0.5, referral: 2, holdings: 0.3 },
+        planner: { nps: 6 },
         note: { tone: 'good', text: 'Test plan loaded: first-year onboarding program (10,000/yr)' },
       },
       message: {
@@ -214,12 +188,12 @@ export const SCRIPTS = [
       },
     }),
   },
-];
+]
 
 export function matchScript(text) {
-  const t = text.toLowerCase();
+  const t = text.toLowerCase()
   for (const s of SCRIPTS) {
-    if (s.keys.some((k) => t.includes(k))) return s;
+    if (s.keys.some((k) => t.includes(k))) return s
   }
-  return null;
+  return null
 }
