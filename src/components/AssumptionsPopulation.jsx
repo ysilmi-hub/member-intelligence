@@ -1,5 +1,5 @@
 import { clvForClass, weightedAvgCLV, combinedAdjustment, applyAdjustment, adjustmentReasons, POP_LIST } from '../model.js'
-import { fmtUSDfull, fmtUSD } from '../data.js'
+import { fmtUSDfull, fmtUSD, FILTER_GROUPS } from '../data.js'
 
 const HORIZONS = [1, 3, 5, 7, 10, 20]
 
@@ -17,23 +17,28 @@ export function HorizonControl({ years, setYears }) {
   )
 }
 
-function AssumptionCell({ value, onChange, step, suffix }) {
+function AssumptionCell({ value, onChange, step, suffix, pct }) {
+  const shown = pct ? Math.round(value * 100) : value
   return (
     <div className="acell">
       <input
-        type="number" className="acell-input" value={value} step={step}
-        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        type="number" className="acell-input" value={shown} step={step}
+        onChange={(e) => {
+          const raw = parseFloat(e.target.value) || 0
+          onChange(pct ? raw / 100 : raw)
+        }}
       />
       {suffix && <span className="acell-suffix">{suffix}</span>}
     </div>
   )
 }
 
-export function BaseAssumptionsView({ classes, setClasses, years, setYears, dirty, resetAssumptions }) {
+export function BaseAssumptionsView({ classes, setClasses, years, setYears, dirty, resetAssumptions, econ, setEcon }) {
   const setField = (key, field, val) =>
     setClasses((prev) => prev.map((c) => (c.key === key ? { ...c, [field]: val } : c)))
+  const setEconField = (field, val) => setEcon((prev) => ({ ...prev, [field]: val }))
 
-  const clvs = classes.map((c) => clvForClass(c, years))
+  const clvs = classes.map((c) => clvForClass(c, years, econ))
 
   return (
     <div className="view">
@@ -43,6 +48,32 @@ export function BaseAssumptionsView({ classes, setClasses, years, setYears, dirt
           <p className="view-sub">Set the key drivers that power your member value model. Edit any cell to test sensitivity.</p>
         </div>
         <HorizonControl years={years} setYears={setYears} />
+      </div>
+
+      <div className="wallet-econ">
+        <div className="wallet-econ-head">
+          <span className="wallet-econ-title">Share-of-wallet economics</span>
+          <span className="wallet-econ-note">A primary relationship (direct deposit, primary card) is worth more than a product held on the side.</span>
+        </div>
+        <div className="wallet-econ-controls">
+          <label className="we-field">
+            <span className="we-label">Primary product value</span>
+            <span className="we-input">
+              <span className="we-pre">$</span>
+              <input type="number" className="acell-input" value={econ.revPerProduct} step={25}
+                onChange={(e) => setEconField('revPerProduct', parseFloat(e.target.value) || 0)} />
+              <span className="acell-suffix">/ yr</span>
+            </span>
+          </label>
+          <label className="we-field">
+            <span className="we-label">Non-primary worth</span>
+            <span className="we-input">
+              <input type="number" className="acell-input" value={Math.round(econ.nonPrimaryFactor * 100)} step={5}
+                onChange={(e) => setEconField('nonPrimaryFactor', (parseFloat(e.target.value) || 0) / 100)} />
+              <span className="acell-suffix">% of primary</span>
+            </span>
+          </label>
+        </div>
       </div>
 
       <div className="atable-wrap">
@@ -69,6 +100,12 @@ export function BaseAssumptionsView({ classes, setClasses, years, setYears, dirt
               <td className="atable-cat"><strong>Product holdings</strong><span>Avg products held</span></td>
               {classes.map((c) => (
                 <td key={c.key}><AssumptionCell value={c.holdings} step={0.1} onChange={(v) => setField(c.key, 'holdings', v)} /></td>
+              ))}
+            </tr>
+            <tr>
+              <td className="atable-cat"><strong>Primary relationships</strong><span>% of holdings that are primary</span></td>
+              {classes.map((c) => (
+                <td key={c.key}><AssumptionCell value={c.primaryShare} step={5} pct={true} suffix="%" onChange={(v) => setField(c.key, 'primaryShare', v)} /></td>
               ))}
             </tr>
             <tr>
@@ -107,13 +144,13 @@ export function BaseAssumptionsView({ classes, setClasses, years, setYears, dirt
   )
 }
 
-export function PopulationView({ classes, years, onPickPopulation }) {
-  const baseAvg = weightedAvgCLV(classes, years)
+export function PopulationView({ classes, years, onPickPopulation, econ }) {
+  const baseAvg = weightedAvgCLV(classes, years, econ)
 
   const rows = POP_LIST.map((p) => {
-    const { mult } = combinedAdjustment({ [p.group]: [p.value] })
+    const { mult } = combinedAdjustment({ [p.group]: [p.value] }, FILTER_GROUPS)
     const adj = applyAdjustment(classes, mult)
-    const avg = weightedAvgCLV(adj, years)
+    const avg = weightedAvgCLV(adj, years, econ)
     const delta = avg - baseAvg
     const reasons = adjustmentReasons(mult)
     return { ...p, avg, delta, pct: delta / baseAvg, reasons }

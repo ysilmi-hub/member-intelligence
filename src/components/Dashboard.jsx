@@ -11,14 +11,26 @@ function FilterRail({ filters, setFilters, view }) {
   const toggle = (group, opt) => {
     setFilters((prev) => {
       const cur = prev[group] || []
-      const next = cur.includes(opt) ? [] : [opt]
+      const next = cur.includes(opt) ? cur.filter((o) => o !== opt) : [...cur, opt]
       return { ...prev, [group]: next }
     })
+  }
+  const allLit = FILTER_GROUPS.every((g) => (filters[g.id] || []).length === g.options.length)
+  const lightAll = () => {
+    const next = {}
+    FILTER_GROUPS.forEach((g) => { next[g.id] = allLit ? [] : [...g.options] })
+    setFilters(next)
   }
   const heading = view === 'intervention' ? 'Cohort baseline' : 'Population filters'
   return (
     <div className="rail">
-      <div className="rail-head">{heading}</div>
+      <div className="rail-head-row">
+        <div className="rail-head">{heading}</div>
+        <button className={'rail-all' + (allLit ? ' rail-all-on' : '')} onClick={lightAll}>
+          {allLit ? '✓ Base population' : 'Select all'}
+        </button>
+      </div>
+      <p className="rail-hint">Select any number of bubbles to build a population. Select all for the base population.</p>
       {FILTER_GROUPS.map((g) => (
         <div className="rail-group" key={g.id}>
           <div className="rail-label">{g.label}</div>
@@ -39,8 +51,8 @@ function FilterRail({ filters, setFilters, view }) {
 }
 
 // ---- Driver waterfall ------------------------------------------------------
-function Waterfall({ from, to, years }) {
-  const d = decompose(from, to, years)
+function Waterfall({ from, to, years, econ }) {
+  const d = decompose(from, to, years, econ)
   const steps = [{ label: from.name, type: 'anchor', value: d.start }]
   let run = d.start
   d.slugs.forEach((s) => {
@@ -90,16 +102,19 @@ function Kpi({ k }) {
   )
 }
 
-function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
-  const { mult, active } = combinedAdjustment(filters)
-  const display = active ? applyAdjustment(classes, mult) : classes
-  const baseAvg = weightedAvgCLV(classes, years)
-  const popAvg = weightedAvgCLV(display, years)
-  const reasons = active ? adjustmentReasons(mult) : []
+function ClvView({ classes, years, filters, chartStyle, highlightClass, econ }) {
+  const { mult, active } = combinedAdjustment(filters, FILTER_GROUPS)
+  const display = active > 0 ? applyAdjustment(classes, mult) : classes
+  const baseAvg = weightedAvgCLV(classes, years, econ)
+  const popAvg = weightedAvgCLV(display, years, econ)
+  const reasons = active > 0 ? adjustmentReasons(mult) : []
 
-  const clvFor = (c) => clvForClass(c, years)
+  const clvFor = (c) => clvForClass(c, years, econ)
   const values = display.map(clvFor)
   const max = Math.max(...values)
+  const minV = Math.min(0, ...values)
+  const range = (max - minV) || 1
+  const zeroPct = (0 - minV) / range * 100
 
   const byKey = Object.fromEntries(display.map((c) => [c.key, c]))
   const initialTo = highlightClass && display.find((c) => c.name === highlightClass)
@@ -118,17 +133,17 @@ function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
 
   const kpis = [
     {
-      id: 'clv', label: active ? 'Population avg CLV' : 'Avg member CLV',
+      id: 'clv', label: active > 0 ? 'Population avg CLV' : 'Avg member CLV',
       value: fmtUSDfull(Math.round(popAvg)),
-      delta: active ? (popAvg >= baseAvg ? '↑ ' : '↓ ') + fmtUSD(Math.abs(popAvg - baseAvg)) + ' vs base' : 'at ' + years + '-yr horizon',
+      delta: active > 0 ? (popAvg >= baseAvg ? '↑ ' : '↓ ') + fmtUSD(Math.abs(popAvg - baseAvg)) + ' vs base' : 'at ' + years + '-yr horizon',
       up: popAvg >= baseAvg,
     },
     { id: 'horizon', label: 'NPV horizon', value: years + ' yrs', delta: 'set on Base assumptions', up: false },
-    { id: 'nps', label: 'NPS score', value: '50', delta: '↑ 1 pt vs prior year', up: true },
+    { id: 'nps', label: 'Avg NPS score', value: '66', delta: 'Super promoter 93 · Detractor 25', up: true },
     {
-      id: 'spread', label: 'Top-to-bottom CLV spread',
-      value: (max / Math.max(1, Math.min(...values))).toFixed(1) + '×',
-      delta: 'Super promoter vs Detractor', up: false,
+      id: 'spread', label: 'Super promoter vs Detractor',
+      value: fmtUSD(Math.max(...values) - Math.min(...values)),
+      delta: 'value gap, top to bottom', up: false,
     },
   ]
 
@@ -136,10 +151,10 @@ function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
     <div className="view">
       <div className="view-head">
         <h1 className="view-title">Member value</h1>
-        <p className="view-sub">CLV / NPV of each member class — {active ? 'for the selected population' : 'across the base population'}, at a {years}-yr horizon.</p>
+        <p className="view-sub">CLV / NPV of each member class — {active > 0 ? 'for the selected population' : 'across the base population'}, at a {years}-yr horizon.</p>
       </div>
 
-      {active && (
+      {active > 0 && (
         <div className="vsbase">
           <div className="vsbase-main">
             <span className="vsbase-label">This population vs base</span>
@@ -176,14 +191,21 @@ function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
                     {chartStyle === 'dots' ? (
                       <div className="dots">
                         {Array.from({ length: 10 }).map((_, i) => (
-                          <span key={i} className={'dot' + (i < Math.round(v / max * 10) ? ' dot-on' : '')}></span>
+                          <span key={i} className={'dot' + (v > 0 && i < Math.round(v / max * 10) ? ' dot-on' : '')}></span>
                         ))}
                       </div>
                     ) : (
-                      <div className="bar-fill" style={{ width: Math.max(2, v / max * 100) + '%' }}></div>
+                      <>
+                        <div className="bar-zero" style={{ left: zeroPct + '%' }}></div>
+                        <div className={'bar-fill' + (v < 0 ? ' bar-neg' : '')}
+                          style={v >= 0
+                            ? { left: zeroPct + '%', width: Math.max(0.5, v / range * 100) + '%' }
+                            : { left: (zeroPct - (-v / range * 100)) + '%', width: Math.max(0.5, -v / range * 100) + '%' }}
+                        ></div>
+                      </>
                     )}
                   </div>
-                  <div className="bar-val num">{fmtUSDfull(Math.round(v))}</div>
+                  <div className={'bar-val num' + (v < 0 ? ' bar-val-neg' : '')}>{(v < 0 ? '−' : '') + fmtUSDfull(Math.abs(Math.round(v)))}</div>
                 </div>
               )
             })}
@@ -194,8 +216,8 @@ function ClvView({ classes, years, filters, chartStyle, highlightClass }) {
           <h2 className="card-title">
             Why {toCls.name.toLowerCase()}s are worth {clvFor(toCls) >= clvFor(fromCls) ? 'more' : 'less'} than {fromCls.name.toLowerCase()}s
           </h2>
-          <p className="card-sub">Decomposing the {fmtUSD(Math.abs(clvFor(toCls) - clvFor(fromCls)))} gap into the four value drivers</p>
-          <Waterfall from={fromCls} to={toCls} years={years} />
+          <p className="card-sub">Decomposing the {fmtUSD(Math.abs(clvFor(toCls) - clvFor(fromCls)))} gap into the value drivers</p>
+          <Waterfall from={fromCls} to={toCls} years={years} econ={econ} />
         </section>
       </div>
     </div>
@@ -247,18 +269,19 @@ function DriverSlider({ label, value, base, min, max, step, display, tweaked, on
   )
 }
 
-function InterventionView({ planner, setPlanner, years, setYears, classes }) {
+function InterventionView({ planner, setPlanner, years, setYears, classes, econ }) {
   const cohort = PLANNER.cohort, cost = PLANNER.cost
   const baseline = cohortBaseline(classes)
   const model = driversFromNps(baseline, planner.nps)
 
   const eff = {
-    churn:    planner.tweaked.churn    ? planner.drivers.churn    : model.churn,
-    womNet:   planner.tweaked.womNet   ? planner.drivers.womNet   : model.womNet,
-    holdings: planner.tweaked.holdings ? planner.drivers.holdings : model.holdings,
+    churn:        planner.tweaked.churn    ? planner.drivers.churn    : model.churn,
+    womNet:       planner.tweaked.womNet   ? planner.drivers.womNet   : model.womNet,
+    holdings:     planner.tweaked.holdings ? planner.drivers.holdings : model.holdings,
+    primaryShare: baseline.primaryShare,
   }
 
-  const value = (clvFromDrivers(eff, years) - clvFromDrivers(baseline, years)) * cohort
+  const value = (clvFromDrivers(eff, years, econ) - clvFromDrivers(baseline, years, econ)) * cohort
   const net = value - cost
   const touched = planner.nps > 0 || planner.tweaked.churn || planner.tweaked.womNet || planner.tweaked.holdings
 
@@ -379,6 +402,7 @@ export default function Dashboard(props) {
     highlightClass, note, chartStyle, classes, setClasses, years, setYears,
     dirty, resetAssumptions, onPickPopulation,
     statusLabel, lastSaved, onSaveContinue, onModelSummary,
+    econ, setEcon,
   } = props
 
   const step = (view === 'assumptions' || view === 'population') ? 1 : 2
@@ -389,11 +413,11 @@ export default function Dashboard(props) {
     <main className="dash">
       <div className="stepbar">
         <div className="steps">
-          <button className={'step' + (step === 1 ? ' step-on' : '')} onClick={() => setView('assumptions')}>
-            <span className="step-num">1</span>
+          <button className={'step' + (step === 1 ? ' step-on' : ' step-done')} onClick={() => setView('assumptions')}>
+            <span className="step-num">{step > 1 ? '✓' : '1'}</span>
             <span className="step-text"><b>Configure model</b><small>Set your assumptions</small></span>
           </button>
-          <span className="step-div"></span>
+          <span className={'step-div' + (step === 2 ? ' step-div-done' : '')}></span>
           <button className={'step' + (step === 2 ? ' step-on' : '')} onClick={() => setView('clv')}>
             <span className="step-num">2</span>
             <span className="step-text"><b>Analyze results</b><small>Explore impact &amp; opportunities</small></span>
@@ -409,11 +433,13 @@ export default function Dashboard(props) {
       </div>
 
       <div className="subtabs">
-        {tabs.map((tb) => (
-          <button key={tb.id} className={'subtab' + (view === tb.id ? ' subtab-on' : '')} onClick={() => setView(tb.id)}>
-            {tb.label}
-          </button>
-        ))}
+        <div className="subtabs-seg">
+          {tabs.map((tb) => (
+            <button key={tb.id} className={'subtab' + (view === tb.id ? ' subtab-on' : '')} onClick={() => setView(tb.id)}>
+              {tb.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {note && (
@@ -428,16 +454,17 @@ export default function Dashboard(props) {
               classes={classes} setClasses={setClasses}
               years={years} setYears={setYears}
               dirty={dirty} resetAssumptions={resetAssumptions}
+              econ={econ} setEcon={setEcon}
             />
           )}
           {view === 'population' && (
-            <PopulationView classes={classes} years={years} onPickPopulation={onPickPopulation} />
+            <PopulationView classes={classes} years={years} onPickPopulation={onPickPopulation} econ={econ} />
           )}
           {view === 'clv' && (
-            <ClvView classes={classes} years={years} filters={filters} chartStyle={chartStyle} highlightClass={highlightClass} />
+            <ClvView classes={classes} years={years} filters={filters} chartStyle={chartStyle} highlightClass={highlightClass} econ={econ} />
           )}
           {view === 'intervention' && (
-            <InterventionView planner={planner} setPlanner={setPlanner} years={years} setYears={setYears} classes={classes} />
+            <InterventionView planner={planner} setPlanner={setPlanner} years={years} setYears={setYears} classes={classes} econ={econ} />
           )}
         </div>
       </div>

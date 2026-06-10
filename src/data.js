@@ -8,25 +8,17 @@ export const fmtUSD = (n) => {
 export const fmtUSDfull = (n) => '$' + Math.round(n).toLocaleString()
 
 export const FILTER_GROUPS = [
-  { id: 'military', label: 'Military status', options: ['Active', 'Veteran', 'Civilian'] },
-  { id: 'base',     label: 'On base',         options: ['On-base', 'Off-base'] },
-  { id: 'age',      label: 'Age',             options: ['18–25', '25–45', '45–65', '65+'] },
-  { id: 'gender',   label: 'Gender',          options: ['M', 'F', 'Other'] },
-  { id: 'income',   label: 'Income',          options: ['<$50K', '$50–100K', '$100K+'] },
-  { id: 'location', label: 'Location',        options: ['Urban', 'Rural', 'North', 'South', 'East', 'West'] },
-  { id: 'family',   label: 'Family status',   options: ['No kids', '1–2 kids', '3+ kids'] },
-  { id: 'products', label: 'Products',        options: ['Checking', 'Savings', 'Mortgage', 'Auto loan', 'CC'] },
+  { id: 'age',      label: 'Age',             options: ['18-34', '35-54', '55+'] },
+  { id: 'income',   label: 'Income',          options: ['<$50k', '$50k-$100k', '$100k+'] },
+  { id: 'military', label: 'Military status', options: ['Civilian', 'Military On-Base', 'Military Off-Base'] },
+  { id: 'gender',   label: 'Gender',          options: ['Female', 'Male', 'Non-binary/Other'] },
+  { id: 'family',   label: 'Family status',   options: ['Single', 'Married No Kids', 'Married With Kids', 'Single Parent'] },
+  { id: 'location', label: 'Location',        options: ['Northeast', 'Southeast', 'Midwest', 'Southwest', 'West', 'International'] },
+  { id: 'products', label: 'Products held',   options: ['Checking', 'Savings', 'Auto Loan', 'Credit Card', 'Mortgage', 'Investment', 'Personal Loan'] },
 ]
 
 export const DEFAULT_FILTERS = {
-  military: ['Active'],
-  base: [],
-  age: ['25–45'],
-  gender: [],
-  income: ['$50–100K'],
-  location: ['Urban'],
-  family: [],
-  products: ['Checking'],
+  age: [], income: [], military: [], gender: [], family: [], location: [], products: [],
 }
 
 export const PLANNER = {
@@ -49,16 +41,16 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'clv',
-        filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: ['Urban'], products: ['Checking'], base: [], gender: [], family: [] },
+        filters: { income: ['<$50k'], age: ['18-34'], products: ['Checking'] },
         highlightClass: 'Detractor',
-        note: { tone: 'warn', text: '4,210 members flagged at elevated churn risk in this cohort' },
+        note: { tone: 'warn', text: '1,356 Detractors flag the highest churn risk in the book' },
       },
       message: {
-        lead: 'I scanned the cohort for early churn signals — declining login frequency, single-product relationships, and NPS slippage. **4,210 members (≈18%)** sit in the elevated-risk band, concentrated in the Detractor and Passive classes.',
+        lead: 'I scanned the book for early churn signals — high attrition probability, single-product relationships, and low NPS. The **1,356 Detractors (14% of members)** carry **3× the base churn rate**, and the risk concentrates in younger, lower-income, single-product members.',
         findings: [
-          'Detractors hold an avg CLV of just **$1,200** — 40% below cohort average.',
-          'Single-product (Checking-only) members churn at **2.6×** the rate of 3+ product members.',
-          'Risk spikes in months 9–14 of tenure, before the first cross-sell typically lands.',
+          'Detractors average just **$1,177 CLV** — about **70% below** the $3,891 book average.',
+          'Detractor churn runs **7.2%/yr vs 2.4%** for the base — and they hold only **1.4 products**.',
+          'Under-35, sub-$50k members churn at **1.6–1.7×** the base rate.',
         ],
         recommendation: {
           title: 'Recommended next step',
@@ -73,16 +65,16 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'clv',
-        filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: ['Urban'], products: ['Checking'], base: ['On-base'], gender: [], family: ['1–2 kids'] },
+        filters: { income: ['$50k-$100k'], age: ['35-54'], products: ['Auto Loan'] },
         highlightClass: 'Promoter',
-        note: { tone: 'good', text: 'Top growth segment: 2,640 Promoters with 2 products and rising income' },
+        note: { tone: 'good', text: 'Top growth segment: 3,721 Promoters one tier below Super promoter' },
       },
       message: {
-        lead: 'Highest growth potential clusters in **Promoters who hold exactly 2 products** and show rising deposit balances. There are **2,640** such members — each within reach of a mortgage or auto-loan attach.',
+        lead: 'The biggest growth pool is the **3,721 Promoters** — already loyal (0.9% churn) and holding **3.4 products**, but one tier below Super promoters. Moving them up is worth the most CLV in aggregate.',
         findings: [
-          'These members average **$5,000 CLV** today with headroom to **$8,400** at 3+ products.',
-          'Income trending up: **62%** moved into the $50–100K band in the last 18 months.',
-          'They already refer at **1.7×** the cohort rate — strong advocacy to amplify.',
+          'Promoters average **$4,907 CLV** today, with headroom to **$7,391** at Super-promoter behavior.',
+          'They already generate **10 positive word-of-mouth mentions/yr** — strong advocacy to amplify.',
+          'Mortgage and Investment holders index highest on CLV (**1.17×** base) — prime cross-sell targets.',
         ],
         recommendation: {
           title: 'Recommended next step',
@@ -97,16 +89,16 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'clv',
-        filters: { military: ['Active'], age: ['25–45'], base: ['On-base'], family: ['1–2 kids'], income: ['$50–100K'], location: [], gender: [], products: ['Savings'] },
+        filters: { military: ['Military On-Base'], age: ['18-34'], family: ['Married With Kids'] },
         highlightClass: 'Promoter',
-        note: { tone: 'info', text: 'Segment: Young military families — 3,180 members, avg tenure 4.2 yrs' },
+        note: { tone: 'info', text: 'Segment: young on-base military families — high NPS, high loyalty' },
       },
       message: {
-        lead: 'Here is the **young military families** segment — active-duty members aged 25–45, on-base, with 1–2 kids. It is **3,180 members** strong and one of the most loyal, fastest-compounding groups in the book.',
+        lead: 'Here is the **young military families** segment — on-base active-duty members under 35 with kids. On-base members are the strongest population in the book: **NPS effects far above average and the lowest churn**.',
         findings: [
-          'Avg CLV **$3,400**, climbing as households add auto loans and first mortgages.',
-          'NPS of **61** — well above the cohort\'s 50; high promoter density.',
-          'Underpenetrated on **CC and mortgage** — only 1.2 of those products held on average.',
+          'On-base members run churn at just **0.26×** the base rate — exceptionally loyal.',
+          'They index **+13% on positive word of mouth** and **+9% on product holdings**.',
+          'Still room to deepen — Investment and Mortgage attach lifts CLV most for this group.',
         ],
         recommendation: {
           title: 'Segment summary',
@@ -121,16 +113,16 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'clv',
-        filters: { military: ['Veteran'], age: ['45–65'], income: ['$100K+'], location: ['Urban'], products: ['Mortgage'], base: [], gender: [], family: [] },
+        filters: { income: ['$100k+'], age: ['55+'], products: ['Mortgage'] },
         highlightClass: 'Super promoter',
-        note: { tone: 'warn', text: '890 high-CLV members with low engagement — quiet attrition risk' },
+        note: { tone: 'warn', text: 'High-value 55+ / $100k+ members — protect against quiet attrition' },
       },
       message: {
-        lead: 'The "quiet valuable" segment: **890 members** with top-quartile CLV but bottom-quartile engagement (few logins, no recent product changes). High value, but drifting.',
+        lead: 'The "quiet valuable" segment: **high-income members 55+**. They carry the highest CLV in the book but the lowest engagement signals — high value, easy to take for granted.',
         findings: [
-          'Avg CLV **$7,800** — these are Super promoters and Promoters by value.',
-          'But **0 digital actions** in the last 60 days for 71% of them.',
-          'Disproportionately Veterans, 45–65, holding mortgage + deposits.',
+          'High-income members index **1.68×** on CLV; 55+ members **1.41×** — both well above base.',
+          'Super promoters average **$7,391 CLV** — **6×** a Detractor.',
+          'These groups show the **lowest churn (0.4× base)** — but outsized value means even small slippage is costly.',
         ],
         recommendation: {
           title: 'Recommended next step',
@@ -145,15 +137,15 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'intervention',
-        filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: ['Urban'], products: ['Savings'], base: [], gender: [], family: [] },
+        filters: { products: ['Savings'] },
         planner: { nps: 4 },
-        note: { tone: 'info', text: 'Modeling: checking auto-enroll for savings-only members' },
+        note: { tone: 'info', text: 'Modeling: checking + direct-deposit attach for savings-only members' },
       },
       message: {
-        lead: 'The strongest checking-adoption lever is **direct-deposit auto-enroll** for savings-only members, paired with a first-90-days fee waiver. I\'ve loaded it into the Intervention Planner as a +0.4 product-holdings uplift.',
+        lead: 'The strongest checking-adoption lever is **direct-deposit auto-enroll** paired with a first-90-days fee waiver. Members who hold Checking index **+19% on product holdings** and **−27% on churn** — it\'s a primacy anchor.',
         findings: [
-          'Savings-only members who add checking lift CLV by **~$900/yr** on average.',
-          'Direct-deposit attach is the single biggest predictor of multi-product retention.',
+          'Checking holders carry **1.15×** the base CLV — adding it lifts value and retention together.',
+          'Direct-deposit attach is the single biggest predictor of a primary relationship.',
           'Cohort affected: **10,000 members/yr**; modeled cost $5M annual.',
         ],
         recommendation: {
@@ -169,20 +161,20 @@ export const SCRIPTS = [
     build: () => ({
       action: {
         view: 'intervention',
-        filters: { military: ['Active'], age: ['25–45'], income: ['$50–100K'], location: [], base: [], gender: [], family: [], products: ['Checking'] },
+        filters: { age: ['18-34'], products: ['Checking'] },
         planner: { nps: 6 },
         note: { tone: 'good', text: 'Test plan loaded: first-year onboarding program (10,000/yr)' },
       },
       message: {
-        lead: 'Here\'s a **first-year onboarding test plan**. I\'ve pre-loaded plausible uplift assumptions into both planner panels so you can pressure-test break-even.',
+        lead: 'Here\'s a **first-year onboarding test plan**, focused on younger members where churn risk is highest. I\'ve pre-loaded a +6 NPS assumption so you can pressure-test break-even.',
         findings: [
           '**Hypothesis:** a structured 12-month onboarding (milestone nudges + 1 proactive outreach) lifts retention and cross-sell.',
           '**Design:** 50/50 holdout, 10,000 first-year members/yr, 12-month read, $5M program cost.',
-          '**Primary metric:** product holdings; **guardrails:** NPS, complaint rate.',
+          '**Primary metric:** product holdings; **guardrails:** NPS, churn rate.',
         ],
         recommendation: {
           title: 'Modeled uplift (editable)',
-          body: '+6 NPS pts, +0.5 yr retention, +2 referrals/lifetime, +0.3 products. Adjust the sliders to see how much lift you actually need to clear break-even.',
+          body: 'A +6 NPS lift flows through to lower churn, more word of mouth, and higher holdings. Drag any driver to see how much lift you actually need to clear break-even.',
         },
         chips: ['What intervention would increase checking adoption?', 'Show me members at risk of churn'],
       },

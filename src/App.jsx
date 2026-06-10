@@ -6,7 +6,7 @@ import {
   TweakSlider, TweakToggle, TweakRadio, TweakColor,
 } from './components/TweaksPanel.jsx'
 import { DEFAULT_FILTERS, FILTER_GROUPS, matchScript, fmtUSDfull } from './data.js'
-import { BASE_CLASSES, weightedAvgCLV } from './model.js'
+import { BASE_CLASSES, ECON, weightedAvgCLV } from './model.js'
 
 const EMPTY_FILTERS = FILTER_GROUPS.reduce((o, g) => { o[g.id] = []; return o }, {})
 
@@ -100,9 +100,11 @@ export default function App() {
   const [note, setNote] = useState(null)
 
   const [classes, setClasses] = useState(freshClasses())
-  const [years, setYears] = useState(7)
+  const [econ, setEcon] = useState(() => ({ ...ECON }))
+  const [years, setYears] = useState(5)
   const dirty = JSON.stringify(classes) !== JSON.stringify(BASE_CLASSES)
-  const resetAssumptions = () => setClasses(freshClasses())
+    || JSON.stringify(econ) !== JSON.stringify(ECON)
+  const resetAssumptions = () => { setClasses(freshClasses()); setEcon({ ...ECON }) }
 
   const [saved, setSaved] = useState(false)
   const [lastSaved, setLastSaved] = useState(() => fmtClock(new Date()))
@@ -116,7 +118,7 @@ export default function App() {
   }
 
   const onModelSummary = () => {
-    const avg = weightedAvgCLV(classes, years)
+    const avg = weightedAvgCLV(classes, years, econ)
     setNote({
       tone: 'info',
       text: `Model summary — ${years}-yr horizon · avg member CLV ${fmtUSDfull(Math.round(avg))} · ${dirty ? 'edited' : 'base'} assumptions`,
@@ -196,6 +198,7 @@ export default function App() {
         onPickPopulation={onPickPopulation}
         statusLabel={statusLabel} lastSaved={lastSaved}
         onSaveContinue={onSaveContinue} onModelSummary={onModelSummary}
+        econ={econ} setEcon={setEcon}
       />
 
       <TweaksPanel>
